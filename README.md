@@ -1,16 +1,16 @@
-# SRM Secure Browser Security Review
+﻿# SRM Secure Browser Security Review
 
-This repository contains a focused security review of `SRMUG-Secure-Browser v1.0.22`, an Electron-based exam browser distributed by Eduswitch Solutions. The review was written from the perspective of a defensive application security assessment: identify risky design choices, explain their impact, and give maintainers a clear remediation path.
+I put this repo together after reviewing `SRMUG-Secure-Browser v1.0.22`, an Electron-based exam browser distributed by Eduswitch Solutions. The notes focus on design and implementation issues that affect exam integrity, proctoring reliability, and student privacy.
 
 ## Scope
 
-The reviewed application bundle was extracted from `app.asar` and inspected as a desktop Electron application. The review covers readable renderer/preload code, bundled JavaScript, native helper binaries, Firebase/WebRTC usage, and the visible client-side exam/proctoring flow.
+The review is based on an extracted `app.asar` bundle. I looked at readable renderer and preload code, bundled JavaScript, native helper binaries, Firebase/WebRTC usage, and the visible client-side exam/proctoring flow.
 
 The compiled `main.jsc` file was not fully decompiled, so the report calls out that limitation where main-process behavior could not be confirmed from source.
 
 ## Key Findings
 
-The report documents 11 issues across client-side trust boundaries, exposed secrets, unsafe IPC/message handling, insecure exam-state design, outdated Electron dependencies, and privacy concerns.
+The report tracks 11 issues across renderer trust boundaries, exposed configuration, IPC/message handling, exam-state design, Electron dependency age, and privacy-sensitive data collection.
 
 Severity snapshot:
 
@@ -44,3 +44,4 @@ If you are maintaining a similar Electron-based exam or kiosk application, treat
 6. Lock Firebase rules to per-student/per-session permissions and validate writes server-side.
 7. Upgrade Electron and remove deprecated `remote` usage.
 8. Rework privacy-sensitive flows such as geolocation collection with explicit consent and retention rules.
+
