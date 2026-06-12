@@ -44,7 +44,3 @@ If you are maintaining a similar Electron-based exam or kiosk application, treat
 6. Lock Firebase rules to per-student/per-session permissions and validate writes server-side.
 7. Upgrade Electron and remove deprecated `remote` usage.
 8. Rework privacy-sensitive flows such as geolocation collection with explicit consent and retention rules.
-
-## Status
-
-This is a static review, not a full penetration test. The findings should be validated in a controlled environment before remediation work is prioritized for production.
