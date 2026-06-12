@@ -23,10 +23,11 @@ Severity snapshot:
 
 ## Repository Contents
 
-| File | Purpose |
+| File / Folder | Purpose |
 |---|---|
 | `SRM_Secure_Browser_Security_Review.md` | Full public review with exploit-ready secrets and bypass steps redacted |
 | `README.md` | Repo overview, scope, severity summary, and remediation guidance |
+| `poc/` | Benign Proof of Concept (PoC) demonstrating postMessage bypass |
 
 ## Responsible Handling
 

