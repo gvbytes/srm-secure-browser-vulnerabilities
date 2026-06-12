@@ -10,24 +10,24 @@ The compiled `main.jsc` file was not fully decompiled, so the report calls out t
 
 ## Key Findings
 
-The report tracks 11 issues across renderer trust boundaries, exposed configuration, IPC/message handling, exam-state design, Electron dependency age, and privacy-sensitive data collection.
+The report tracks 13 issues across renderer trust boundaries, exposed configuration, IPC/message handling, exam-state design, Electron dependency age, and privacy-sensitive data collection.
 
 Severity snapshot:
 
 | Severity | Count | Main Themes |
 |---|---:|---|
 | Critical | 3 | Exposed client-side secrets, unauthenticated message control, answer-key exposure |
-| High | 4 | Public privileged globals, weak DevTools lockdown, old Electron, client-writable Firebase state |
-| Medium | 3 | Weak VM checks, deprecated request library, GPS collection concerns |
+| High | 5 | Public privileged globals, weak DevTools lockdown, old Electron, client-writable Firebase state, leaked updater config |
+| Medium | 4 | Weak VM checks, deprecated request library, GPS collection concerns, hardcoded storage endpoints |
 | Low | 1 | Ineffective PrintScreen handling |
 
 ## Repository Contents
 
 | File / Folder | Purpose |
 |---|---|
-| `SRM_Secure_Browser_Security_Review.md` | Full security vulnerability assessment report detailing VULN-001 through VULN-010 |
+| `SRM_Secure_Browser_Security_Review.md` | Full security vulnerability assessment report detailing Findings 1 through 13 |
 | `README.md` | Repo overview, severity summary, and responsible disclosure logs |
-| `poc/` | Functional Proof of Concept (PoC) scripts for unvalidated messaging, credentials decryption, and VMDetect bypasses |
+| `poc/` | Functional Proof of Concept (PoC) scripts for unvalidated messaging, credentials decryption, answer extraction, and VMDetect bypasses |
 
 ## Responsible Handling
 
