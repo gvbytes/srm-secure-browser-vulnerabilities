@@ -71,6 +71,8 @@ So any script running anywhere in the page — a reflected XSS on the exam porta
 
 You can also send `"actualstart"` to trick the main process into thinking the exam has actually begun (which unlocks certain UI states), or use `"opentab"` with an arbitrary `data.url` to navigate the locked browser to a URL of your choice.
 
+A functional demonstration of this vulnerability is available in the [poc/](poc/) directory; the [bypass-poc.js](poc/bypass-poc.js) script constructs a mock payload to trigger the handler.
+
 ---
 
 ### 3. `window.StartTest` and `window.EndTest` are public globals
