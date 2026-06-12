@@ -237,3 +237,4 @@ End to end. No network attack, no kernel exploit, no social engineering. Just th
 ## What I didn't get to
 
 `main.jsc` is 54KB of compiled V8 bytecode. That's where the kiosk mode setup, BrowserWindow creation, keyboard hooks, and most of the main process control flow lives. I'd need to run it through bytenode's decompiler or write a V8 snapshot extractor to get readable output. There could be more in there — particularly around how the window flags are set and whether there's any integrity checking on the renderer scripts before they load.
+
