@@ -1,17 +1,30 @@
-# Vulnerability Proof of Concept (PoC)
+# Vulnerability Proof of Concept (PoC) Tools
 
-This directory contains a benign Proof of Concept script demonstrating the IPC origin bypass vulnerability identified in `preload.js` (Finding 2).
+This directory contains functional Proof of Concept scripts and stubs for the vulnerabilities identified in the security review.
 
-### 1. The Vulnerability
-The preload script listens for browser window messages via `window.addEventListener('message')` but performs no verification on `event.origin` or the source window context:
+---
 
-```js
-window.addEventListener('message', function (event) {
-    if (event.data.msg == "stop" || event.data.Action == "stop") {
-        ipcRenderer.sendToHost('stop-proctoring');
-    }
-});
-```
+### 1. IPC Origin Bypass (VULN-003)
+- **File**: [bypass-poc.js](bypass-poc.js)
+- **Description**: Demonstrates how a script executing on any origin can post messages to the Electron preload listener to kill webcam and desktop streams.
+- **Execution**: Paste the payload into the browser console during an exam session.
 
-### 2. Execution Flow
-The [bypass-poc.js](bypass-poc.js) script constructs a mock payload and dispatches it directly to the active window using `window.postMessage()`. Because there are no origin checks, the preload script captures the message and immediately signals the main process to terminate proctoring.
+---
+
+### 2. Config Decryption Utility (VULN-005)
+- **File**: [decrypt-config.js](decrypt-config.js)
+- **Description**: Demonstrates how the hardcoded keys `keysefghijkldesk` and `icesefghijklmnop` are used to decrypt Firebase endpoints and ICE configurations.
+- **Execution**: Run with Node.js:
+  ```bash
+  node decrypt-config.js
+  ```
+
+---
+
+### 3. VMDetect Bypass Stub (VULN-008)
+- **File**: [fake-vmdetect.cs](fake-vmdetect.cs)
+- **Description**: A C# source code template for a dummy executable that replaces `VMDetect.exe` in the local program files and mocks an "all-clear" system environment.
+- **Compilation**:
+  ```bash
+  csc /target:exe /out:VMDetect.exe fake-vmdetect.cs
+  ```

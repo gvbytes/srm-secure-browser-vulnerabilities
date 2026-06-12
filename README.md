@@ -25,9 +25,9 @@ Severity snapshot:
 
 | File / Folder | Purpose |
 |---|---|
-| `SRM_Secure_Browser_Security_Review.md` | Full public review with exploit-ready secrets and bypass steps redacted |
-| `README.md` | Repo overview, scope, severity summary, and remediation guidance |
-| `poc/` | Benign Proof of Concept (PoC) demonstrating postMessage bypass |
+| `SRM_Secure_Browser_Security_Review.md` | Full security vulnerability assessment report detailing VULN-001 through VULN-010 |
+| `README.md` | Repo overview, severity summary, and responsible disclosure logs |
+| `poc/` | Functional Proof of Concept (PoC) scripts for unvalidated messaging, credentials decryption, and VMDetect bypasses |
 
 ## Responsible Handling
 
