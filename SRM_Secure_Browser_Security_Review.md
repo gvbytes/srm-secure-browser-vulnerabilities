@@ -1,12 +1,19 @@
 # SRM Secure Browser — Security Notes
 **App:** SRMUG-Secure-Browser v1.0.22 by Eduswitch Solutions  
-**Analyzed:** app.asar extracted — 890 files, 416 JS, 25 Win32 EXEs
+**Analyzed:** app.asar extracted — 890 files, 416 JS, 25 Win32 EXEs  
+**Runtime Specifications:** Electron 10.4.6 (Chromium 85.0.4183.121, Node.js 12.16.3, V8 ~8.6)  
 
 ---
 
 ## Quick overview of what this app actually is
 
-It's an Electron wrapper around a Chromium shell. The exam runs inside a `<webview>` tag. Around that webview sits a bunch of "security" — a preload script that bridges IPC between the exam page and the main process, several obfuscated JS renderers that handle webcam capture, screen recording, face detection (TensorFlow BlazeFace + Coco-SSD), Firebase connectivity, WebRTC to proctors, and a handful of Win32 native EXEs spawned as child processes for things like keyboard hooking and VM detection.
+It's an Electron wrapper around a Chromium shell. The exam runs inside a `<webview>` tag. Around that webview sits a bunch of "security" — a preload script that bridges IPC between the exam page and the main process, several obfuscated JS renderers that handle webcam capture, screen recording, face detection (TensorFlow BlazeFace + Coco-SSD), Firebase connectivity, WebRTC to proctors, and a handful of Win32 native EXEs spawned as child processes:
+
+- `DetectProcessesWithUI.exe` — Enumerates active windows and queries task lists (`ps-list` / C# `node-process-windows`).
+- `DetectUserSwitch.exe` — Monitors Windows session switching.
+- `VMDetect.exe` — Checks hypervisor CPUID bits, SMBIOS/BIOS strings, and VM guest driver files.
+- `Restrictions-DiableWinKey-WinFormsApp.exe` / `DiableWinKey-WinFormsApp-DisableRestrictions.exe` — Keyboard hooking utilities to block Windows Key, Alt+Tab, and system hotkeys.
+- `DetectVirtualDesktop/` (`VirtualDesktop.exe`, `VirtualDesktop11.exe`) — Blocks alternate desktop spaces.
 
 The core logic that matters sits in three layers:
 
@@ -215,6 +222,23 @@ Inside `renderer-WebRtc.js`, during WebRTC initialization, the app calls `naviga
 
 ---
 
+### 12. Leaked Auto-Updater Repository Configuration (`app-update.yml`)
+
+The package includes an auto-updater configuration file `app-update.yml` that exposes the developer's release pipeline:
+- **GitHub Owner/Developer**: `nevillekatila`
+- **Target Staging Repo**: `github.com/nevillekatila/es-stage` (configured for draft releases)
+- **Local Cache Dir**: `srmug-secure-browser-updater` (Squirrel.Windows)
+
+Exposure of the staging repository allows monitoring of release drafts and target pipeline discovery.
+
+---
+
+### 13. Hardcoded Media Upload Queue Endpoint Exposure
+
+Webcam and desktop video streams are sliced into 30-second chunks via `MediaStreamRecorder` and transmitted directly to Azure Blob Storage endpoints (`UploadStudentWebCamVideo`, `UploadStudentDesktopVideo`). Because these AJAX upload endpoints are hardcoded in the frontend and rely on raw client-side parameters, an attacker can intercept or drop upload requests, or trigger `formDataWebCamError` offline queues to suppress video recording uploads without interrupting the active exam socket.
+
+---
+
 ## If you wanted to chain this into a complete proctoring bypass + perfect score
 
 No root, no exploits needed — just access to the exam app running normally:
@@ -245,6 +269,8 @@ End to end. No network attack, no kernel exploit, no social engineering. Just th
 | 9 | PrintScreen "wipe" only clears clipboard, not the screenshot | **Low** |
 | 10 | Deprecated `request` module for token fetch — MITM risk | **Medium** |
 | 11 | GPS collected and uploaded without any visible consent | **Medium** |
+| 12 | Leaked Auto-Updater Repository Configuration (`app-update.yml`) | **High** |
+| 13 | Hardcoded AJAX Media Upload Queue Endpoints | **Medium** |
 
 ---
 
