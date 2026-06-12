@@ -1,4 +1,4 @@
-﻿# SRM Secure Browser Security Review
+# SRM Secure Browser Security Review
 
 I put this repo together after reviewing `SRMUG-Secure-Browser v1.0.22`, an Electron-based exam browser distributed by Eduswitch Solutions. The notes focus on design and implementation issues that affect exam integrity, proctoring reliability, and student privacy.
 
@@ -33,6 +33,18 @@ Severity snapshot:
 The public version of this report intentionally avoids publishing live-looking keys or step-by-step exam bypass instructions. The goal is to document architectural weaknesses and help a maintainer, researcher, or reviewer understand what needs to be fixed without turning the write-up into an operational abuse guide.
 
 If you are maintaining a similar Electron-based exam or kiosk application, treat the renderer as untrusted. Sensitive decisions should be enforced by the server or privileged main process, with strict validation at every boundary.
+
+## Proof of Responsible Disclosure
+
+Before making any of this public, I reached out to SRM directly. I emailed the report to multiple university contacts — controller of exams, the CSE HOD, admissions, the COE office, and the DNC team — explaining everything I found and offering to walk them through the PoCs or help verify fixes once they patched things.
+
+As of today, I haven't received any response from them.
+
+Here's a screenshot of that email for proof:
+
+![Disclosure email sent to SRM university authorities](disclosure-email.png)
+
+The email had the full vulnerability report (`srm_vuln_review.md`) attached, covering all 11 issues. No data was accessed, no systems were disrupted, and the findings were not shared with anyone else before this disclosure attempt.
 
 ## Recommended Fix Order
 
