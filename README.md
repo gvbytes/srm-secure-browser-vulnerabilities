@@ -31,12 +31,18 @@ Severity snapshot:
 
 ## Proof of Concept Scripts
 
-Functional exploitation utilities demonstrating specific flaws are organized in the `poc/` directory:
+Functional exploitation utilities demonstrating all 10 verified flaw vectors are organized in the `poc/` directory:
 
-- **`poc/bypass-poc.js`**: Dispatches a cross-document message payload (`msg: "stop"`) to the unvalidated preload listener to kill webcam and desktop streams.
-- **`poc/extract-answers.js`**: Dumps the plaintext answer key from `localStorage` and mutates answer selection flags to force a 100% score payload on submission.
-- **`poc/decrypt-config.js`**: Decrypts Firebase API keys and TURN/STUN ICE credentials using recovered static AES-128-ECB keys (`keysefghijkldesk`, `icesefghijklmnop`).
-- **`poc/fake-vmdetect.cs`**: C# stub template for compiling a dummy executable that replaces `VMDetect.exe` in local program files and mocks an "all-clear" JSON response.
+- **`poc/poc1-extract-answers.js`**: Dumps the plaintext answer key (`CorrectAns`) stored in `localStorage.getItem("ExamQuestionsObj")`.
+- **`poc/poc2-autosubmit-score.js`**: Mutates answer selection flags in `localStorage` to force a 100% score payload on submission.
+- **`poc/poc3-proctoring-kill.js`**: Dispatches a `postMessage({ msg: "stop" })` payload to the unvalidated preload listener to kill webcam and desktop streams.
+- **`poc/poc4-window-globals-abuse.js`**: Demonstrates calling pre-attached global functions (`window.EndTest()`, `window.StartTest(...)`) to manipulate session lifecycle.
+- **`poc/poc5-decrypt-config.js`**: Decrypts Firebase API keys and TURN/STUN ICE credentials using recovered static AES-128-ECB keys (`keysefghijkldesk`, `icesefghijklmnop`).
+- **`poc/poc6-disable-blur-detection.js`**: Overwrites `window.DisableForegroundingFromMainForDebugging = true` to neutralize focus loss and alt-tab reporting.
+- **`poc/poc7-firebase-state-manipulation.js`**: Modifies student telemetry nodes directly in Realtime Database to set `isOnline: false` and `AllowScreenRecord: false`.
+- **`poc/poc8-silent-gps-extraction.js`**: Demonstrates client-side geolocation extraction executed without permission dialogs inside the Electron shell.
+- **`poc/poc9-fake-vmdetect.cs`**: C# stub template for compiling a dummy executable that replaces `VMDetect.exe` in `app.asar.unpacked/` and mocks an "all-clear" JSON response.
+- **`poc/poc10-full-bypass-chain.js`**: Executes the end-to-end chained compromise vector (disable blur -> extract & mutate answers -> kill proctoring -> submit).
 
 ## Responsible Handling
 
